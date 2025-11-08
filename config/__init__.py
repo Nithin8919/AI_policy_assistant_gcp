@@ -1,19 +1,26 @@
 """
 Configuration management for AP Policy Reasoning System
 
-Loads and validates settings from YAML
+Loads and validates settings from YAML and .env file
 """
 
 import yaml
+import os
 from pathlib import Path
 from typing import Dict, Any
 from functools import lru_cache
+from dotenv import load_dotenv
+
+# Load .env file from project root
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 
 @lru_cache(maxsize=1)
 def load_config() -> Dict[str, Any]:
     """
-    Load configuration from settings.yaml
+    Load configuration from settings.yaml and override with .env values
     
     Cached to avoid repeated file I/O
     """
@@ -24,6 +31,25 @@ def load_config() -> Dict[str, Any]:
     
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
+    
+    # Override with environment variables if present
+    if os.getenv("GOOGLE_CLOUD_PROJECT_ID"):
+        config["project"]["gcp_project_id"] = os.getenv("GOOGLE_CLOUD_PROJECT_ID")
+    
+    if os.getenv("GOOGLE_CLOUD_LOCATION"):
+        config["project"]["location"] = os.getenv("GOOGLE_CLOUD_LOCATION")
+    
+    if os.getenv("GEMINI_MODEL"):
+        config["models"]["llm"] = os.getenv("GEMINI_MODEL")
+    
+    # If RAG_CORPUS_ID is set, update all engine IDs to use the same corpus
+    # You can customize this to map specific engines to different corpora if needed
+    if os.getenv("RAG_CORPUS_ID"):
+        rag_corpus_id = os.getenv("RAG_CORPUS_ID")
+        # Update all engines to use the same corpus ID
+        if "engines" in config and config["engines"]:
+            for engine_name in config["engines"]:
+                config["engines"][engine_name]["id"] = rag_corpus_id
     
     # Validate required fields
     validate_config(config)

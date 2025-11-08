@@ -3,7 +3,20 @@ Vertex AI Ranking API - Wrapper for semantic reranking
 Uses Vertex AI's ranking service to reorder documents by relevance
 """
 from typing import List, Dict, Any
-from google.cloud import discoveryengine_v1 as discoveryengine
+try:
+    from google.cloud.discoveryengine import RankServiceClient, RankRequest, RankingRecord
+    discoveryengine = None  # Use direct imports
+except ImportError:
+    try:
+        from google.cloud import discoveryengine_v1 as discoveryengine
+        RankServiceClient = discoveryengine.RankServiceClient
+        RankRequest = discoveryengine.RankRequest
+        RankingRecord = discoveryengine.RankingRecord
+    except ImportError:
+        discoveryengine = None
+        RankServiceClient = None
+        RankRequest = None
+        RankingRecord = None
 from utils.logging import get_logger
 
 logger = get_logger()
@@ -18,7 +31,9 @@ class VertexRankingAPI:
         self.model = model
         
         # Initialize the ranking service client
-        self.client = discoveryengine.RankServiceClient()
+        if RankServiceClient is None:
+            raise ImportError("RankServiceClient not available. Please install google-cloud-discoveryengine correctly.")
+        self.client = RankServiceClient()
         
         # Construct the ranking config path
         self.ranking_config = f"projects/{project_id}/locations/{location}/rankingConfigs/default_ranking_config"
@@ -62,13 +77,13 @@ class VertexRankingAPI:
             ]
             
             # Create the ranking request
-            request = discoveryengine.RankRequest(
+            request = RankRequest(
                 ranking_config=self.ranking_config,
                 model=self.model,
                 top_n=top_k,
                 query=query,
                 records=[
-                    discoveryengine.RankingRecord(
+                    RankingRecord(
                         id=record["id"],
                         title=record["title"],
                         content=record["content"]

@@ -3,11 +3,11 @@
 project:
   name: "AP Policy RAG System"
   version: "1.0.0"
-  gcp_project_id: "YOUR_GCP_PROJECT_ID"
-  location: "us-central1"
+  gcp_project_id: "tech-bharath"  # Can be overridden by GOOGLE_CLOUD_PROJECT_ID in .env
+  location: "asia-south1"  # Can be overridden by GOOGLE_CLOUD_LOCATION in .env
 
 models:
-  llm: "gemini-1.5-pro"
+  llm: "gemini-2.5-flash"  # Can be overridden by GEMINI_MODEL in .env
   llm_temperature: 0.1
   embed: "text-embedding-005"
   max_tokens: 8192
@@ -22,7 +22,7 @@ ranking:
 # RAG Engine Registry
 engines:
   data_report:
-    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/data_report_vertical"
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"  # Can be overridden by RAG_CORPUS_ID in .env
     display_name: "Data Reports & Statistics"
     facets:
       - "aser"
@@ -45,7 +45,7 @@ engines:
       - "infrastructure"
     
   gos:
-    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/gos_vertical"
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"
     display_name: "Government Orders"
     weight: 0.9
     description: "Official Government Orders and circulars"
@@ -58,7 +58,7 @@ engines:
       - "dated"
     
   judicial:
-    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/judicial_vertical"
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"
     display_name: "Judicial Decisions"
     weight: 0.8
     description: "Court judgments, orders, and case law"
@@ -74,7 +74,7 @@ engines:
       - "respondent"
     
   legal:
-    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/legal_vertical"
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"
     display_name: "Legal Instruments"
     facets:
       - "ap_edu"
@@ -96,7 +96,7 @@ engines:
       - "transfer policy"
     
   schemes:
-    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/schemes_vertical"
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"
     display_name: "Government Schemes"
     weight: 0.7
     description: "Educational schemes, welfare programs"
@@ -108,6 +108,21 @@ engines:
       - "mid-day meal"
       - "Bala badi"
       - "Kasturba Gandhi"
+      
+  education:
+    id: "projects/tech-bharath/locations/asia-south1/ragCorpora/7638104968020361216"
+    display_name: "Education Policies"
+    weight: 0.9
+    description: "Educational policies, curriculum, teacher guidelines"
+    keywords:
+      - "education policy"
+      - "curriculum"
+      - "teacher"
+      - "student"
+      - "assessment"
+      - "school"
+      - "academic"
+      - "learning"
 
 # Routing Configuration
 routing:

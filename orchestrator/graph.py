@@ -4,8 +4,19 @@ Defines nodes, edges, parallel branches, and checkpointing
 """
 from typing import Dict, Any, List
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
 import asyncio
+
+# Try to import checkpoint saver, fallback to None if not available
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+    CHECKPOINT_AVAILABLE = True
+except ImportError:
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        CHECKPOINT_AVAILABLE = True
+    except ImportError:
+        CHECKPOINT_AVAILABLE = False
+        MemorySaver = None
 
 from orchestrator.state import PolicyGraphState, is_error_state
 from router.planner import QueryPlanner
@@ -64,9 +75,17 @@ class PolicyGraphOrchestrator:
         workflow.add_edge("fuse", "synthesize")
         workflow.add_edge("synthesize", END)
         
-        # Compile with checkpointing
-        memory = SqliteSaver.from_conn_string(":memory:")  # In-memory for now
-        app = workflow.compile(checkpointer=memory)
+        # Compile with checkpointing if available
+        if CHECKPOINT_AVAILABLE and MemorySaver:
+            try:
+                memory = MemorySaver()
+                app = workflow.compile(checkpointer=memory)
+            except Exception:
+                # Fallback to no checkpointing
+                app = workflow.compile()
+        else:
+            # No checkpointing available
+            app = workflow.compile()
         
         return app
     

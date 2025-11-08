@@ -2,7 +2,12 @@
 Rerank - Reorder documents using Vertex AI Ranking API
 """
 from typing import List, Dict, Any
-from rag_clients.ranking_api import VertexRankingAPI
+try:
+    from rag_clients.ranking_api import VertexRankingAPI
+    RANKING_API_AVAILABLE = True
+except ImportError:
+    RANKING_API_AVAILABLE = False
+    VertexRankingAPI = None
 from utils.logging import get_logger
 
 logger = get_logger()
@@ -26,6 +31,11 @@ async def rerank_docs(
     if len(documents) == 1:
         logger.info("Only one document, skipping rerank")
         return documents
+    
+    # Check if ranking API is available
+    if not RANKING_API_AVAILABLE or VertexRankingAPI is None:
+        logger.warning("Ranking API not available, using score-based sorting")
+        return sorted(documents, key=lambda d: d.get("score", 0.0), reverse=True)
     
     try:
         project_id = config["project"]["gcp_project_id"]

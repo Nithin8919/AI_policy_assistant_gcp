@@ -10,6 +10,8 @@ from vertexai.preview import rag
 import vertexai
 
 from utils.logging import get_logger
+from vertexai.preview.rag import RagResource
+from vertexai.generative_models import GenerativeModel
 
 logger = get_logger()
 
@@ -25,6 +27,29 @@ class VertexRAGClient:
         # Initialize Vertex AI
         vertexai.init(project=self.project_id, location=self.location)
         aiplatform.init(project=self.project_id, location=self.location)
+        
+        # Initialize LLM for query enhancement
+        self.model = GenerativeModel("gemini-2.5-flash")
+        
+        # Best performing enhancement patterns
+        self.enhancement_patterns = {
+            "teacher_transfer": {
+                "keywords": ["teacher", "transfer", "posting", "deployment"],
+                "template": '"Andhra Pradesh" ("teacher transfer" OR "teaching staff redeployment" OR "teacher posting") ("rules" OR "regulations" OR "guidelines" OR "policy" OR "G.O. Ms. No." OR "orders")'
+            },
+            "scholarship": {
+                "keywords": ["scholarship", "financial assistance", "scheme", "benefit"],
+                "template": 'Andhra Pradesh education scholarship scheme financial assistance policy guidelines G.O. notification for students beneficiaries'
+            },
+            "government_order": {
+                "keywords": ["government order", "go", "memo", "circular"],
+                "template": '"Andhra Pradesh education" ("government order" OR "GO" OR "memo" OR "circular" OR "notification" OR "policy" OR "scheme" OR "regulation" OR "guidelines" OR "directive")'
+            },
+            "learning_outcomes": {
+                "keywords": ["learning outcomes", "competencies", "standards", "assessment"],
+                "template": '"Andhra Pradesh" ("education policy" OR "school education") ("learning outcomes" OR "competencies" OR "standards" OR "educational objectives") ("guidelines" OR "framework" OR "regulations" OR "scheme" OR "circular" OR "notification" OR "directives")'
+            }
+        }
         
         logger.info(
             f"Initialized Vertex RAG client: "
@@ -63,14 +88,32 @@ class VertexRAGClient:
             # Build filter from config
             filter_dict = self._build_filter(config.get("filters", {}))
             
-            # Execute RAG retrieval
-            # Note: This is a simplified example. Adjust based on actual Vertex RAG API
+            # Enhanced query processing
+            enhanced_query_info = await self._enhance_query(query, engine_name)
+            final_query = enhanced_query_info["enhanced_query"]
+            
+            logger.info(
+                f"Query enhancement: '{query}' -> '{final_query}' "
+                f"(method: {enhanced_query_info['method']})"
+            )
+            
+            # Execute RAG retrieval with enhanced query
             response = await self._execute_rag_query(
                 rag_corpus_id=rag_corpus_id,
-                query=query,
+                query=final_query,
                 top_k=top_k,
                 filter_dict=filter_dict
             )
+            
+            # If no results with enhanced query, try original
+            if not self._has_results(response):
+                logger.info("No results with enhanced query, trying original...")
+                response = await self._execute_rag_query(
+                    rag_corpus_id=rag_corpus_id,
+                    query=query,
+                    top_k=top_k,
+                    filter_dict=filter_dict
+                )
             
             # Parse response
             documents = self._parse_response(response, engine_name)
@@ -111,43 +154,38 @@ class VertexRAGClient:
     ) -> Any:
         """
         Execute the actual RAG query using Vertex AI SDK
-        
-        Note: This is a simplified implementation. Adjust based on your
-        actual Vertex RAG API version and methods.
         """
         try:
             # Use the RAG API to retrieve contexts
-            # Adjust this based on actual Vertex RAG API
+            # Run in executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
             
-            # Example using rag.retrieval.retrieval
-            # response = rag.retrieval.retrieve(
-            #     rag_corpus=rag_corpus_id,
-            #     query=query,
-            #     top_k=top_k,
-            #     filter=filter_dict
-            # )
+            def sync_retrieve():
+                """Synchronous RAG retrieval"""
+                try:
+                    # Use Vertex AI RAG retrieval_query function
+                    # rag_corpora expects a list of corpus resource names
+                    # Note: vector_distance_threshold might be too strict, try without it first
+                    response = rag.retrieval_query(
+                        text=query,
+                        rag_resources=[RagResource(rag_corpus=rag_corpus_id)],
+                        similarity_top_k=top_k,
+                        # vector_distance_threshold=0.3,  # Commented out - might be filtering all results
+                        # vector_search_alpha=0.5  # Balance between dense and sparse search
+                    )
+                    logger.info(f"RAG query executed, response type: {type(response)}")
+                    return response
+                except Exception as e:
+                    logger.error(f"RAG retrieval_query failed: {e}")
+                    raise
             
-            # For now, return mock response structure
-            # REPLACE THIS with actual API call
-            response = {
-                "contexts": [
-                    {
-                        "source_uri": f"gs://bucket/doc_{i}.pdf",
-                        "text": f"Mock content {i} for query: {query}",
-                        "score": 0.9 - (i * 0.05),
-                        "metadata": {
-                            "source": "mock_source",
-                            "page": i + 1
-                        }
-                    }
-                    for i in range(min(top_k, 5))  # Mock 5 results
-                ]
-            }
+            # Execute synchronous call in thread pool
+            response = await loop.run_in_executor(None, sync_retrieve)
             
             return response
             
         except Exception as e:
-            logger.error(f"RAG query execution failed: {e}")
+            logger.error(f"RAG query execution failed: {e}", exc_info=True)
             raise
     
     def _build_filter(self, filters: Dict[str, Any]) -> Dict[str, Any]:
@@ -182,31 +220,148 @@ class VertexRAGClient:
         """Parse Vertex RAG response into standardized document format"""
         documents = []
         
-        # Adjust based on actual response structure
-        contexts = response.get("contexts", [])
+        # Handle RetrieveContextsResponse from retrieval_query
+        # The response has a 'contexts' attribute containing RagContexts
+        contexts = []
+        
+        # Debug: Log response structure
+        logger.debug(f"Response type: {type(response)}")
+        logger.debug(f"Response has contexts attr: {hasattr(response, 'contexts')}")
+        
+        if hasattr(response, 'contexts'):
+            try:
+                # The contexts attribute is a RagContexts object
+                # It contains a 'contexts' attribute which is a RepeatedComposite
+                contexts_attr = response.contexts
+                logger.debug(f"Contexts attr type: {type(contexts_attr)}")
+                
+                # Access the inner contexts from RagContexts
+                if hasattr(contexts_attr, 'contexts'):
+                    inner_contexts = contexts_attr.contexts
+                    logger.debug(f"Inner contexts type: {type(inner_contexts)}")
+                    # Convert RepeatedComposite to list
+                    contexts = list(inner_contexts)
+                    logger.debug(f"Converted to list, length: {len(contexts)}")
+                else:
+                    # Fallback: try to iterate directly
+                    if hasattr(contexts_attr, '__iter__'):
+                        contexts = list(contexts_attr)
+                    else:
+                        contexts = []
+                    
+            except Exception as e:
+                logger.warning(f"Error accessing contexts: {e}, trying alternative methods")
+                # Try alternative access methods
+                try:
+                    # Try as protobuf message
+                    if hasattr(response, 'to_dict'):
+                        response_dict = response.to_dict()
+                        contexts = response_dict.get("contexts", [])
+                    # Try direct attribute access
+                    elif hasattr(response.contexts, 'contexts'):
+                        contexts = list(response.contexts.contexts)
+                except Exception as e2:
+                    logger.error(f"All parsing methods failed: {e2}")
+                    contexts = []
+        elif isinstance(response, dict):
+            contexts = response.get("contexts", [])
+        elif isinstance(response, list):
+            contexts = response
+        else:
+            logger.warning(f"Unexpected response type: {type(response)}")
+            contexts = []
+        
+        logger.info(f"Parsed {len(contexts)} contexts from response")
         
         for i, context in enumerate(contexts):
+            try:
+                # Handle protobuf message objects (RetrieveContextsResponse.Context)
+                if hasattr(context, 'text'):
+                    text = context.text
+                    # Get source URI - could be in source_uri or file_uri
+                    source_uri = getattr(context, 'source_uri', getattr(context, 'file_uri', getattr(context, 'uri', '')))
+                    # Get distance/score - lower distance = higher relevance
+                    distance = getattr(context, 'distance', None)
+                    score = 1.0 - float(distance) if distance is not None else 0.0
+                    # Metadata might be in separate fields
+                    metadata = {}
+                    if hasattr(context, 'metadata'):
+                        try:
+                            if hasattr(context.metadata, 'items'):
+                                metadata = dict(context.metadata)
+                            elif isinstance(context.metadata, dict):
+                                metadata = context.metadata
+                        except:
+                            metadata = {}
+                elif isinstance(context, dict):
+                    text = context.get("text", context.get("content", ""))
+                    source_uri = context.get("source_uri", context.get("file_uri", context.get("uri", "")))
+                    distance = context.get("distance", None)
+                    score = 1.0 - float(distance) if distance is not None else context.get("score", 0.0)
+                    metadata = context.get("metadata", {})
+                else:
+                    logger.warning(f"Unexpected context type: {type(context)}, skipping")
+                    logger.debug(f"Context attributes: {[x for x in dir(context) if not x.startswith('_')]}")
+                    continue
+            except Exception as e:
+                logger.error(f"Error parsing context {i}: {e}")
+                continue
+            
             doc = {
                 "id": f"{engine_name}_{i}",
                 "vertical": engine_name,
-                "source_uri": context.get("source_uri", ""),
-                "text": context.get("text", ""),
-                "score": context.get("score", 0.0),
-                "metadata": context.get("metadata", {}),
+                "source_uri": source_uri,
+                "text": text,
+                "score": max(0.0, min(1.0, score)),  # Clamp score between 0 and 1
+                "metadata": metadata if isinstance(metadata, dict) else {},
                 "rank": i
             }
             
             # Extract locator (page, section, etc.) from metadata
-            metadata = context.get("metadata", {})
-            locator = metadata.get("page", metadata.get("section", ""))
-            doc["locator"] = str(locator) if locator else ""
-            
-            # Extract source date if available
-            doc["source_date"] = metadata.get("date", metadata.get("published_date", ""))
+            if isinstance(metadata, dict):
+                locator = metadata.get("page", metadata.get("section", metadata.get("chunk_index", "")))
+                doc["locator"] = str(locator) if locator else ""
+                doc["source_date"] = metadata.get("date", metadata.get("published_date", ""))
+            else:
+                doc["locator"] = ""
+                doc["source_date"] = ""
             
             documents.append(doc)
         
         return documents
+    
+    async def _enhance_query(self, query: str, engine_name: str) -> Dict[str, str]:
+        """Enhanced query processing with LLM optimization"""
+        
+        query_lower = query.lower()
+        
+        # Check for pattern matches first
+        for pattern_key, pattern_info in self.enhancement_patterns.items():
+            if any(keyword in query_lower for keyword in pattern_info["keywords"]):
+                return {
+                    "enhanced_query": pattern_info["template"],
+                    "method": f"pattern_{pattern_key}",
+                    "original_query": query
+                }
+        
+        # Fall back to basic enhancement
+        basic_enhanced = f'"Andhra Pradesh education" {query} policy guidelines'
+        
+        return {
+            "enhanced_query": basic_enhanced,
+            "method": "basic_pattern",
+            "original_query": query
+        }
+    
+    def _has_results(self, response) -> bool:
+        """Check if the response has any results"""
+        try:
+            if hasattr(response, 'contexts') and hasattr(response.contexts, 'contexts'):
+                contexts = list(response.contexts.contexts)
+                return len(contexts) > 0
+            return False
+        except:
+            return False
 
 
 # Async helper for batch retrieval

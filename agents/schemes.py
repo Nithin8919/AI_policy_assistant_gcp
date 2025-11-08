@@ -118,7 +118,7 @@ class SchemesAgent:
         # Benefit types and characteristics
         self.benefit_types = {
             "financial": {
-                "patterns": [r'amount', r'money', r'cash', r'rupees', r'¹', r'payment', r'reimbursement'],
+                "patterns": [r'amount', r'money', r'cash', r'rupees', r'payment', r'reimbursement'],
                 "forms": ["direct cash transfer", "reimbursement", "subsidy", "scholarship"],
                 "disbursement": ["bank transfer", "check", "cash", "digital payment"]
             },
@@ -567,7 +567,7 @@ class SchemesAgent:
         
         benefit_patterns = [
             r'(?:benefit|amount|assistance)\s*:?\s*([^.]{20,100})',
-            r'(?:¹|rs\.?|rupees)\s*([^.]{10,80})',
+            r'(?:ï¿½|rs\.?|rupees)\s*([^.]{10,80})',
             r'(?:will\s+(?:get|receive|be\s+given))\s+([^.]{15,100})',
             r'(?:provides?|offers?|gives?)\s+([^.]{15,100})'
         ]
