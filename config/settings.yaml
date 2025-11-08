@@ -1,0 +1,221 @@
+# Andhra Pradesh Policy Reasoning System Configuration
+
+project:
+  name: "AP Policy RAG System"
+  version: "1.0.0"
+  gcp_project_id: "YOUR_GCP_PROJECT_ID"
+  location: "us-central1"
+
+models:
+  llm: "gemini-1.5-pro"
+  llm_temperature: 0.1
+  embed: "text-embedding-005"
+  max_tokens: 8192
+
+ranking:
+  provider: "vertex_ai_ranking_api"
+  model: "semantic-ranker-512@latest"
+  top_k_per_engine: 40
+  final_k: 20
+  score_threshold: 0.3
+
+# RAG Engine Registry
+engines:
+  data_report:
+    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/data_report_vertical"
+    display_name: "Data Reports & Statistics"
+    facets:
+      - "aser"
+      - "budget"
+      - "financial"
+      - "nas"
+      - "ses"
+      - "teacher_data"
+      - "udise"
+    weight: 0.9
+    description: "Educational statistics, UDISE data, budget reports, NAS, ASER, SES"
+    keywords:
+      - "enrollment"
+      - "GER"
+      - "dropout"
+      - "PTR"
+      - "budget allocation"
+      - "learning outcomes"
+      - "teacher ratio"
+      - "infrastructure"
+    
+  gos:
+    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/gos_vertical"
+    display_name: "Government Orders"
+    weight: 0.9
+    description: "Official Government Orders and circulars"
+    keywords:
+      - "GO"
+      - "Ms No"
+      - "circular"
+      - "notification"
+      - "order"
+      - "dated"
+    
+  judicial:
+    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/judicial_vertical"
+    display_name: "Judicial Decisions"
+    weight: 0.8
+    description: "Court judgments, orders, and case law"
+    keywords:
+      - "AIR"
+      - "SCC"
+      - "writ petition"
+      - "WP No"
+      - "judgment"
+      - "Hon'ble"
+      - "court"
+      - "petitioner"
+      - "respondent"
+    
+  legal:
+    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/legal_vertical"
+    display_name: "Legal Instruments"
+    facets:
+      - "ap_edu"
+      - "constitution"
+      - "ntce"
+      - "rte"
+      - "service"
+      - "transfer"
+    weight: 1.0
+    description: "Acts, rules, constitution, education codes"
+    keywords:
+      - "Act"
+      - "Section"
+      - "Article"
+      - "Rule"
+      - "RTE"
+      - "Constitution"
+      - "service rules"
+      - "transfer policy"
+    
+  schemes:
+    id: "projects/YOUR_PROJECT/locations/us-central1/ragCorpora/schemes_vertical"
+    display_name: "Government Schemes"
+    weight: 0.7
+    description: "Educational schemes, welfare programs"
+    keywords:
+      - "scheme"
+      - "PM POSHAN"
+      - "KGBV"
+      - "scholarship"
+      - "mid-day meal"
+      - "Bala badi"
+      - "Kasturba Gandhi"
+
+# Routing Configuration
+routing:
+  max_engines: 3
+  min_score: 0.25
+  similarity_threshold: 0.7
+  
+  # Force engine pairs for certain query types
+  force_pairs:
+    - ["legal", "gos"]       # Legal queries need GO evidence
+    - ["judicial", "legal"]  # Cases need statute context
+    - ["schemes", "gos"]     # Schemes need GO notifications
+  
+  # Boosting rules
+  entity_boost:
+    act_section: 0.3
+    go_number: 0.3
+    case_citation: 0.4
+    scheme_name: 0.2
+    metric_name: 0.2
+
+# Query Analysis Settings
+analysis:
+  language_detection: true
+  supported_languages: ["en", "te"]
+  
+  entity_patterns:
+    act_section: "(?i)(Section|Sec\\.?)\\s*(\\d+[A-Z]?)(\\((\\d+)\\))?.*?(of|,).*?(Act|Rules)"
+    go_number: "(?i)(GO|G\\.O\\.|Memo|Ms)\\.?\\s*No\\.?\\s*([\\d/\\-]+)"
+    case_citation: "(?i)(AIR|SCC|\\d{4}\\s*\\(\\d+\\))|WP\\s*No\\.?\\s*\\d+"
+    scheme_name: "(?i)(PM POSHAN|KGBV|Kasturba Gandhi|Bala badi|scholarship|MDM|Mid[- ]?Day)"
+    udise_metric: "(?i)(UDISE|GER|PTR|NER|dropout|enrollment|infrastructure)"
+    date_range: "(?i)(FY|since|from|during|as on|between)\\s*\\d{4}"
+  
+  synonym_expansion:
+    enabled: true
+    max_expansions: 3
+
+# Fusion Settings
+fusion:
+  deduplication:
+    method: "semantic_fingerprint"
+    similarity_threshold: 0.92
+    title_weight: 0.4
+    content_weight: 0.6
+  
+  conflict_resolution:
+    prefer_newer: true
+    show_supersession: true
+    max_versions: 3
+
+# Answer Synthesis Settings
+synthesis:
+  min_citation_count: 2
+  max_citation_count: 15
+  citation_format: "[{engine}:{doc_id}:{page}]"
+  show_confidence: true
+  include_gaps: true
+  max_answer_length: 2000
+  
+  prompt_template: |
+    You are analyzing government policy documents for Andhra Pradesh.
+    
+    CRITICAL RULES:
+    1. Every factual claim MUST have a citation in format [engine:doc_id:page]
+    2. Quote key text verbatim when needed (max 100 words per quote)
+    3. If sources conflict, present both views with dates
+    4. If information is missing, state it explicitly
+    5. Use clear, bureaucratic language - no embellishment
+    
+    Query: {query}
+    
+    Evidence:
+    {evidence}
+    
+    Provide:
+    - Direct answer with citations
+    - Key supporting quotes
+    - Any conflicts or gaps
+    - Confidence level (high/medium/low)
+
+# Performance Settings
+performance:
+  timeout_seconds: 30
+  max_parallel_retrievals: 5
+  cache_ttl_seconds: 3600
+  retry_attempts: 3
+  retry_delay_seconds: 1
+
+# Logging & Monitoring
+logging:
+  level: "INFO"
+  format: "json"
+  log_queries: true
+  log_plans: true
+  log_retrievals: true
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  track_latency: true
+  track_accuracy: true
+
+# API Settings
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+  rate_limit: "100/minute"
